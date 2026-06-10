@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+log = logging.getLogger(__name__)
 
 from sr.model import FSRCNN
 from sr.data import SRDataset
@@ -39,46 +47,46 @@ def train(args):
     # ── Device ────────────────────────────────────────────────────────────
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        print(f"GPU detected: {torch.cuda.get_device_name(0)}")
+        log.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
     else:
         device = torch.device('cpu')
-        print("No GPU detected, falling back to CPU (slower)")
+        log.warning("No GPU detected, falling back to CPU (slower)")
 
     # ── Mixed precision scaler ─────────────────────────────────────────────
     use_amp = (device.type == 'cuda') and not args.no_amp
     scaler  = torch.amp.GradScaler('cuda', enabled=use_amp)
     if use_amp:
-        print("Mixed precision (AMP) enabled")
+        log.info("Mixed precision (AMP) enabled")
 
     # ── Model ──────────────────────────────────────────────────────────────
     model = FSRCNN(scale=args.scale, d=args.d, s=args.s, m=args.m).to(device)
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"Model parameters: {total_params:,}")
+    log.info(f"Model parameters: {total_params:,}")
 
     # ── Load pretrained weights (optional) ────────────────────────────────
     start_epoch = 1
     if args.pretrained:
-        print(f"\nLoading pretrained weights from: {args.pretrained}")
+        log.info(f"Loading pretrained weights from: {args.pretrained}")
         model = load_pretrained(model, args.pretrained, device)
 
     # ── Export only: skip training entirely ───────────────────────────────
     if args.export_only:
-        print("\n--export_only: skipping training, exporting directly to ONNX.")
+        log.info("--export_only: skipping training, exporting directly to ONNX.")
         export_onnx(model, args.output, scale=args.scale)
-        print(f"Done. ONNX model saved to: {args.output}")
+        log.info(f"Done. ONNX model saved to: {args.output}")
         return
 
     # ── Resume training (optional) ────────────────────────────────────────
     optimizer_state = None
     scheduler_state = None
     if args.resume:
-        print(f"\nResuming from checkpoint: {args.resume}")
-        ckpt = torch.load(args.resume, map_location=device)
+        log.info(f"Resuming from checkpoint: {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(ckpt['model_state_dict'])
         optimizer_state = ckpt.get('optimizer_state_dict')
         scheduler_state = ckpt.get('scheduler_state_dict')
         start_epoch     = ckpt.get('epoch', 0) + 1
-        print(f"  Resuming from epoch {start_epoch}")
+        log.info(f"Resuming from epoch {start_epoch}")
 
     # ── Dataset ────────────────────────────────────────────────────────────
     dataset = SRDataset(
@@ -119,7 +127,7 @@ def train(args):
     if scheduler_state:
         scheduler.load_state_dict(scheduler_state)
 
-    print(f"\nLR milestones (epochs): {milestones}")
+    log.info(f"LR milestones (epochs): {milestones}")
 
     # ── Validation subset ─────────────────────────────────────────────────
     val_dataset = SRDataset(args.data_dir, patch_size=args.patch_size, scale=args.scale, augment=False)
@@ -155,7 +163,7 @@ def train(args):
             epoch_loss += loss.item()
 
             if batch_idx % 50 == 0:
-                print(
+                log.info(
                     f"Epoch {epoch}/{start_epoch + args.epochs - 1} | "
                     f"Batch {batch_idx}/{len(loader)} | "
                     f"Loss: {loss.item():.4f} | "
@@ -180,9 +188,9 @@ def train(args):
 
             avg_psnr = np.mean(val_psnr_list)
             avg_ssim = np.mean(val_ssim_list)
-            print(
-                f"\n→ Epoch {epoch} | Loss: {avg_loss:.4f} | "
-                f"PSNR: {avg_psnr:.2f} dB | SSIM: {avg_ssim:.4f}\n"
+            log.info(
+                f"Epoch {epoch} | Loss: {avg_loss:.4f} | "
+                f"PSNR: {avg_psnr:.2f} dB | SSIM: {avg_ssim:.4f}"
             )
 
             if avg_psnr > best_psnr:
@@ -198,22 +206,21 @@ def train(args):
                     'scale': args.scale,
                     'd': args.d, 's': args.s, 'm': args.m,
                 }, checkpoint_path)
-                print(f"  ✓ Best checkpoint saved: {checkpoint_path} "
-                      f"(PSNR: {best_psnr:.2f} dB)")
+                log.info(f"Best checkpoint saved: {checkpoint_path} (PSNR: {best_psnr:.2f} dB)")
         else:
-            print(f"→ Epoch {epoch} | Loss: {avg_loss:.4f}")
+            log.info(f"Epoch {epoch} | Loss: {avg_loss:.4f}")
 
     # ── Export to ONNX ────────────────────────────────────────────────────
     if checkpoint_path.exists():
-        best_ckpt = torch.load(checkpoint_path, map_location=device)
+        best_ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
         model.load_state_dict(best_ckpt['model_state_dict'])
-        print(f"\nExporting best checkpoint (PSNR: {best_ckpt['psnr']:.2f} dB) to ONNX...")
+        log.info(f"Exporting best checkpoint (PSNR: {best_ckpt['psnr']:.2f} dB) to ONNX...")
 
     export_onnx(model, args.output, scale=args.scale)
-    print("\nTraining complete!")
-    print(f"  Best PSNR:   {best_psnr:.2f} dB")
-    print(f"  Checkpoint:  {checkpoint_path}")
-    print(f"  ONNX model:  {args.output}")
+    log.info("Training complete!")
+    log.info(f"Best PSNR:   {best_psnr:.2f} dB")
+    log.info(f"Checkpoint:  {checkpoint_path}")
+    log.info(f"ONNX model:  {args.output}")
 
 
 def main():

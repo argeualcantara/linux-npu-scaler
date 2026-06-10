@@ -180,38 +180,19 @@ python capture_dataset.py dedup --dir ./dataset
 
 ## 4. Train the model
 
-### Option A: Fine-tune from pretrained checkpoint (recommended)
-
-Much faster and better quality than training from scratch. Uses the DIV2K
-checkpoint as the starting point and fine-tunes on your gaming dataset.
-
-```bash
-python train.py \
-  --data_dir ./dataset \
-  --pretrained fsrcnn_div2k.ckpt \
-  --output model.onnx \
-  --epochs 30 \
-  --batch_size 32 \
-  --lr 0.0001
-# Lower LR for fine-tuning (10x less than scratch training)
-# ~2–4h on RX 9060 XT
-```
-
-### Option B: Train from scratch
+### Option A: Train from scratch
 
 ```bash
 python train.py \
   --data_dir ./dataset \
   --output model.onnx \
   --epochs 100 \
-  --batch_size 32 \
-  --patch_size 64 \
-  --scale 2 \
-  --lr 0.001
-# ~8–12h on RX 9060 XT
+  --batch_size 64 \
+  --num_workers 6 \
+  --cache_images
 ```
 
-### Option C: Quick test run (validate the pipeline works, ~20 min)
+### Option B: Quick test run (validate the pipeline works, ~20 min)
 
 ```bash
 python train.py \

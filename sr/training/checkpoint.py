@@ -1,4 +1,8 @@
+import logging
+
 import torch
+
+log = logging.getLogger(__name__)
 
 
 def _remap_suxrobgm_keys(state_dict: dict) -> dict:
@@ -32,7 +36,7 @@ def _remap_suxrobgm_keys(state_dict: dict) -> dict:
             skipped.append(key)
 
     if skipped:
-        print(f"  Skipped (incompatible upsampler — will fine-tune from random init): {skipped}")
+        log.warning(f"Skipped (incompatible upsampler — will fine-tune from random init): {skipped}")
     return remapped
 
 
@@ -51,21 +55,21 @@ def load_pretrained(model, path: str, device):
     if isinstance(ckpt, dict):
         if 'model_state_dict' in ckpt:
             state_dict = ckpt['model_state_dict']
-            print(f"  Format: our checkpoint (epoch={ckpt.get('epoch','?')})")
+            log.info(f"Checkpoint format: our checkpoint (epoch={ckpt.get('epoch','?')})")
         elif 'model' in ckpt:
             raw = ckpt['model']
-            print(f"  Format: suxrobGM/fsrcnn checkpoint (epoch={ckpt.get('epoch','?')})")
-            print(f"  Remapping layer names...")
+            log.info(f"Checkpoint format: suxrobGM/fsrcnn checkpoint (epoch={ckpt.get('epoch','?')})")
+            log.info("Remapping layer names...")
             state_dict = _remap_suxrobgm_keys(raw)
         elif 'state_dict' in ckpt:
             state_dict = ckpt['state_dict']
-            print(f"  Format: generic state_dict checkpoint")
+            log.info(f"Checkpoint format: generic state_dict checkpoint")
         else:
             state_dict = ckpt
-            print(f"  Format: raw state_dict")
+            log.info(f"Checkpoint format: raw state_dict")
     else:
         state_dict = ckpt
-        print(f"  Format: raw tensor checkpoint")
+        log.info(f"Checkpoint format: raw tensor checkpoint")
 
     model_state = model.state_dict()
     loaded, skipped_shape, skipped_missing = 0, [], []
@@ -84,13 +88,13 @@ def load_pretrained(model, path: str, device):
     model.load_state_dict(model_state)
 
     if skipped_shape:
-        print(f"  Skipped shape mismatch (random init): {len(skipped_shape)} tensors")
+        log.warning(f"Skipped shape mismatch (random init): {len(skipped_shape)} tensors")
         for s in skipped_shape:
-            print(f"    {s}")
+            log.warning(f"  {s}")
     if skipped_missing:
-        print(f"  Skipped (not in model): {skipped_missing}")
+        log.warning(f"Skipped (not in model): {skipped_missing}")
 
-    print(f"  Successfully loaded {loaded}/{len(state_dict)} weight tensors.")
+    log.info(f"Successfully loaded {loaded}/{len(state_dict)} weight tensors.")
     if loaded == 0:
-        print("  WARNING: no weights transferred — model will train from scratch.")
+        log.warning("No weights transferred — model will train from scratch.")
     return model

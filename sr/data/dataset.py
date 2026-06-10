@@ -1,3 +1,4 @@
+import logging
 import random
 from pathlib import Path
 
@@ -6,6 +7,8 @@ import torch
 from torchvision.transforms import functional as TF
 from PIL import Image
 from torch.utils.data import Dataset
+
+log = logging.getLogger(__name__)
 
 
 class SRDataset(Dataset):
@@ -45,10 +48,10 @@ class SRDataset(Dataset):
                 "Accepted formats: PNG, JPG, JPEG, WEBP, BMP"
             )
 
-        print(f"Dataset: {len(self.image_paths)} images found in {data_dir}")
-        print(f"HR patch size: {self.hr_size}px | LR patch size: {self.patch_size}px | Scale: {self.scale}x")
+        log.info(f"Dataset: {len(self.image_paths)} images found in {data_dir}")
+        log.info(f"HR patch size: {self.hr_size}px | LR patch size: {self.patch_size}px | Scale: {self.scale}x")
         if cache:
-            print("Image caching enabled — pre-loading dataset into RAM...")
+            log.info("Image caching enabled — pre-loading dataset into RAM...")
             self._preload_cache()
 
     def _preload_cache(self):
@@ -57,7 +60,7 @@ class SRDataset(Dataset):
                 self._image_cache[str(path)] = Image.open(path).convert('RGB')
             except Exception:
                 pass
-        print(f"Cached {len(self._image_cache)} images in RAM.")
+        log.info(f"Cached {len(self._image_cache)} images in RAM.")
 
     def _load_image(self, path):
         key = str(path)
