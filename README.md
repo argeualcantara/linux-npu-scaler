@@ -1,5 +1,16 @@
-# SR-Linux — NPU Super-Resolution for Linux
-### End-to-end pipeline: capture → train → ONNX → inference
+# npu-scope — NPU Super-Resolution for Linux
+### End-to-end pipeline: capture → train → ONNX → inference → Gamescope
+
+---
+
+## What this is
+
+An open-source Linux equivalent of Windows Auto SR, targeting the AMD XDNA 2 NPU
+inside the ROG Ally X (and any Ryzen AI 300 / Strix Point device). The model runs
+as a Gamescope upscaling backend: the game renders at 540p, the NPU upscales to
+1080p, the display sees 1080p — with zero GPU overhead.
+
+Current status: training + inference pipeline complete. Gamescope integration in progress.
 
 ---
 
@@ -7,10 +18,10 @@
 
 | Stage | Resolution | Notes |
 |---|---|---|
-| Dataset (HR source) | **1440p native** | No upscaler active |
-| Generated LR | **720p** | 2x bicubic downsample, on-the-fly |
-| Inference — training machine | 720p → 1440p | Full test |
-| Inference — Ally X | 540p → 1080p | Same 2x ratio, fits the device |
+| Dataset (HR source) | **1440p native** | No upscaler active during capture |
+| Generated LR (training) | **720p** | 2x bicubic downsample, on-the-fly |
+| Inference — training machine | 720p → 1440p | Full quality test |
+| Inference — Ally X (target) | 540p → 1080p | Same 2x ratio |
 
 Capture at native 1440p with **all upscalers disabled** (FSR, DLSS, XeSS, NIS,
 Gamescope SR). The model learns from real pixel detail — upscaled source frames
@@ -21,50 +32,128 @@ undermine training quality.
 ## Project structure
 
 ```
-sr_project/
-├── train.py            # Trains the model, exports to ONNX
+npu-scope/
+├── train.py            # Train the model, export to ONNX
 ├── upscale.py          # Inference: image in → upscaled image out
-├── capture_dataset.py  # Captures native 1440p frames from games
-├── dataset/            # Your HR images go here
-└── model.onnx          # Generated after training
+├── capture_dataset.py  # Capture native 1440p frames from games
+├── dataset/            # Your HR images go here (git-ignored)
+├── model.onnx          # Generated after training (versioned on Hugging Face)
+└── requirements.txt    # Python dependencies
 ```
 
 ---
 
-## 0. Installation
+## 0. Prerequisites
+
+- Python 3.10 or newer
+- An AMD GPU with ROCm support **or** any CPU (for testing)
+- `ffmpeg` installed (for video frame extraction)
+- Git
+
+---
+
+## 1. Installation
+
+### 1a. Clone the repo and create a virtual environment
 
 ```bash
-# Create isolated environment
+git clone https://github.com/your-username/npu-scope
+cd npu-scope
+
 python -m venv venv
 source venv/bin/activate
+# Your prompt will change to (venv) — all pip commands below run inside it
+```
 
-# PyTorch with ROCm (RX 9060 XT)
+### 1b. Install PyTorch
+
+**If you have an AMD GPU (RX 9060 XT or similar — ROCm):**
+```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.3
+```
 
-# Inference and utility dependencies
+**If you have an NVIDIA GPU (CUDA):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+```
+
+**CPU only (for testing, no GPU required):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+### 1c. Install remaining dependencies
+
+```bash
 pip install onnx onnxruntime numpy Pillow scipy
+pip install mss          # optional: for live screen capture
+```
 
-# Optional: live screen capture
-pip install mss
+### 1d. Verify your GPU is detected
 
-# Verify GPU is detected (ROCm exposes itself through the CUDA interface)
-python -c "import torch; print('GPU OK:', torch.cuda.get_device_name(0))"
+```bash
+python -c "import torch; print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'not detected (CPU mode)')"
+```
+
+### 1e. Save your dependencies
+
+```bash
+pip freeze > requirements.txt
+# Anyone cloning the repo later can run: pip install -r requirements.txt
 ```
 
 ---
 
-## 1. Build the dataset (1440p HR images)
+## 2. Get a pretrained model (recommended starting point)
 
-### Option A: Extract from a recorded video
+Instead of training from scratch, start from a pretrained FSRCNN checkpoint and
+fine-tune on your gaming dataset. This gives much better results in fewer epochs.
 
-Record the game at **native 1440p** with OBS (no post-process filters, no sharpening).
-Recommended OBS settings: 2560×1440, lossless or high-bitrate H.264/AV1.
+```bash
+# Download the DIV2K-pretrained checkpoint from suxrobGM/fsrcnn
+# (trained on high-resolution photography — good starting point for gaming)
+curl -L https://github.com/suxrobGM/fsrcnn/raw/main/pretrained/fsrcnn_div2k.ckpt \
+     -o fsrcnn_div2k.ckpt
+```
+
+Or clone the full repo and copy the file:
+```bash
+git clone https://github.com/suxrobGM/fsrcnn /tmp/fsrcnn_ref
+cp /tmp/fsrcnn_ref/pretrained/fsrcnn_div2k.ckpt ./
+```
+
+### Export Only
+
+``` bash
+python train.py \
+  --pretrained pretrained/fsrcnn_div2k.ckpt \
+  --output model.onnx \
+  --export_only \
+  --d 64 --s 16
+```
+
+---
+
+## 3. Build the dataset (1440p HR images)
+
+### Option A: Extract from a recorded video (recommended)
+
+Record the game at **native 1440p** with OBS. Settings: 2560×1440, high-bitrate
+H.264 or AV1, **no post-process filters, no sharpening**.
+
+Checklist before recording:
+- [ ] Game resolution: **2560×1440**
+- [ ] FSR / DLSS / XeSS / NIS: **OFF**
+- [ ] Gamescope upscaling: **OFF**
+- [ ] In-game sharpening: **OFF**
 
 ```bash
 python capture_dataset.py video \
   --source recording_1440p.mp4 \
   --output ./dataset \
-  --every 30          # 1 frame every 30 (avoids redundant frames at 30fps video)
+  --every 30
+# Extracts 1 frame every 30 frames (~1 fps at 30fps video)
+# Target: 5,000+ frames from 5+ different games
 ```
 
 ### Option B: Live screen capture while playing
@@ -72,44 +161,43 @@ python capture_dataset.py video \
 ```bash
 python capture_dataset.py screen \
   --output ./dataset \
-  --duration 300 \    # 5 minutes
+  --duration 300 \
   --fps 2.0
+# Switch to your game when prompted. Play for 5 minutes.
 ```
 
-Switch to your game when prompted. Move the camera, explore different environments.
-Scene variety = better generalisation.
-
-Checklist before capturing:
-- [ ] Game resolution: 2560×1440
-- [ ] FSR / DLSS / XeSS: **OFF**
-- [ ] Gamescope upscaling: **OFF**
-- [ ] In-game sharpening filter: **OFF**
-
-### Remove near-duplicate frames (loading screens, static menus)
+### Remove near-duplicate frames
 
 ```bash
 python capture_dataset.py dedup --dir ./dataset
+# Removes loading screens, static menus, near-identical frames
 ```
 
-**Minimum goal:** 5,000 images from at least 5 different games.  
+**Minimum goal:** 5,000 images from 5+ games.
 **Good goal:** 50,000+ images from 10–15 games with varied art styles.
 
 ---
 
-## 2. Train the model
+## 4. Train the model
 
-### Quick test run (~30 min on RX 9060 XT)
+### Option A: Fine-tune from pretrained checkpoint (recommended)
+
+Much faster and better quality than training from scratch. Uses the DIV2K
+checkpoint as the starting point and fine-tunes on your gaming dataset.
 
 ```bash
 python train.py \
   --data_dir ./dataset \
+  --pretrained fsrcnn_div2k.ckpt \
   --output model.onnx \
-  --epochs 10 \
+  --epochs 30 \
   --batch_size 32 \
-  --no_perceptual     # L1 only = faster, lower quality
+  --lr 0.0001
+# Lower LR for fine-tuning (10x less than scratch training)
+# ~2–4h on RX 9060 XT
 ```
 
-### Full recommended training (~8–12h)
+### Option B: Train from scratch
 
 ```bash
 python train.py \
@@ -117,49 +205,101 @@ python train.py \
   --output model.onnx \
   --epochs 100 \
   --batch_size 32 \
-  --patch_size 64 \   # LR patch size; HR patch = 128px (2x)
+  --patch_size 64 \
   --scale 2 \
   --lr 0.001
+# ~8–12h on RX 9060 XT
 ```
 
-Checkpoints (`.pt`) are saved automatically whenever loss improves.
-You can interrupt and resume training if needed.
+### Option C: Quick test run (validate the pipeline works, ~20 min)
 
-**What happens during training:**
-1. Load a native 1440p HR image from the dataset
-2. Take a random 128×128 patch
-3. Downsample it 2x to 64×64 → LR patch
-4. Pass LR through the model → SR prediction
-5. Compute loss between SR and the original 128×128 HR patch
-6. Update model weights
-7. Repeat for N epochs
+```bash
+python train.py \
+  --data_dir ./dataset \
+  --output model.onnx \
+  --epochs 5 \
+  --batch_size 32 \
+  --no_perceptual
+# L1 loss only = faster. Use this just to confirm everything runs.
+```
+
+### Resume an interrupted run
+
+```bash
+python train.py \
+  --data_dir ./dataset \
+  --resume model.pt \
+  --output model.onnx \
+  --epochs 100
+# Restores model weights, optimizer state, and LR scheduler exactly where you left off
+```
+
+### Training flags reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `--data_dir` | `./dataset` | Folder with 1440p HR images |
+| `--output` | `model.onnx` | ONNX export path |
+| `--pretrained` | — | Pretrained `.ckpt` for fine-tuning |
+| `--resume` | — | Checkpoint to resume from |
+| `--epochs` | `50` | Number of training epochs |
+| `--batch_size` | `32` | Patches per batch |
+| `--patch_size` | `64` | LR patch size (HR = 128px at 2x) |
+| `--lr` | `0.001` | Learning rate |
+| `--val_freq` | `5` | Validate every N epochs |
+| `--no_perceptual` | off | L1 loss only (faster) |
+| `--no_amp` | off | Disable mixed precision |
+| `--cache_images` | off | Pre-load dataset into RAM |
+| `--d` / `--s` / `--m` | 56/12/4 | Model architecture parameters |
+
+**What you'll see during training:**
+```
+Epoch 1/30 | Batch 0/250 | Loss: 0.0842 | LR: 1.00e-04
+→ Epoch 5 | Loss: 0.0431 | PSNR: 28.14 dB | SSIM: 0.8203
+  ✓ Best checkpoint saved: model.pt (PSNR: 28.14 dB)
+```
+
+PSNR above 30 dB = model is working well. Above 35 dB = excellent.
 
 ---
 
-## 3. Test with an image
+## 5. Test with an image
 
-### Basic test
+### Basic test (540p input → 1080p output, auto-detected)
 
 ```bash
-# Use any 720p image as input (e.g. a frame from your dataset downscaled)
 python upscale.py \
-  --input screenshot_720p.png \
+  --input test_540p.png \
   --model model.onnx
-# → output: screenshot_720p_sr.png  (1440p)
+# → saves screenshot_540p_sr.png at 1080p
+# No --target_res needed: 540 × 2 = 1080 automatically
 ```
 
-### With side-by-side comparison
+### With side-by-side comparison (model vs bicubic baseline)
 
 ```bash
 python upscale.py \
-  --input screenshot_720p.png \
+  --input screenshot_540p.png \
   --model model.onnx \
   --compare
-# → saves screenshot_720p_sr_compare.png
-# Left: bicubic resize (baseline) | Right: model output
+# → saves screenshot_540p_sr.png and screenshot_540p_sr_compare.png
+# Left half: bicubic resize | Right half: model output
 ```
 
-### With PSNR measurement (requires native HR reference)
+### Explicit target resolution
+
+```bash
+# Force 1080p output from any input size
+python upscale.py --input frame.png --model model.onnx --target_res 1920x1080
+
+# Force 1440p output
+python upscale.py --input frame.png --model model.onnx --target_res 2560x1440
+
+# Force 4K output (model runs 2x; input is pre-scaled to 1920x1080 first)
+python upscale.py --input frame.png --model model.onnx --target_res 3840x2160
+```
+
+### With PSNR/SSIM measurement (requires a native HR reference)
 
 ```bash
 python upscale.py \
@@ -167,10 +307,10 @@ python upscale.py \
   --model model.onnx \
   --hr_ref screenshot_1440p_native.png \
   --compare
-# → prints PSNR in dB  (>30 dB = acceptable, >35 dB = good)
+# → prints PSNR in dB (>30 = acceptable, >35 = good)
 ```
 
-### Tile mode (for large images that don't fit in memory)
+### Tile mode (for large images or low-memory systems)
 
 ```bash
 python upscale.py \
@@ -180,26 +320,21 @@ python upscale.py \
   --overlap 16
 ```
 
----
+### What to look for
 
-## 4. What to look for in the output
-
-Compare the model output against the bicubic baseline:
-
-- **Edges** — sharper, or blurry/over-sharpened?
-- **HUD / text** — readable? No ringing artifacts?
-- **Flat areas** (sky, walls) — clean, or spurious patterns?
-- **Temporal stability** (if testing on a sequence) — do details flicker between frames?
-
-If the result looks blurry → model needs more epochs or more training data.  
-If the result has grid-like artifacts → patch size or architecture may need tuning.  
-If edges ring or glow → perceptual loss weight may be too high.
+| Good sign | Problem |
+|---|---|
+| Sharper edges than bicubic | Blurry → train more epochs |
+| Readable HUD text | Ringing/glow → lower perceptual weight |
+| Clean flat areas (sky, walls) | Grid artifacts → tune patch size |
+| No flickering between frames | Temporal flicker → add temporal input |
 
 ---
 
-## 5. Next steps after validating the model
+## 6. INT8 quantization for the XDNA 2 NPU
 
-### INT8 quantization for the XDNA 2 NPU (Ally X)
+Once you're happy with the FP32 ONNX model, quantize it for NPU deployment.
+INT8 is ~4x faster on the NPU's integer accelerators.
 
 ```bash
 pip install quark
@@ -208,24 +343,66 @@ python -c "
 from quark.onnx import ModelQuantizer
 q = ModelQuantizer('model.onnx', 'model_int8.onnx')
 q.quantize()
+print('Done: model_int8.onnx')
 "
 ```
 
-INT8 quantization trades a small amount of accuracy for ~4x faster NPU inference.
-Benchmark both and pick the threshold you are comfortable with.
+Benchmark both models with `upscale.py` and compare inference time vs visual quality.
 
-### Gamescope integration
+---
 
-The next step is adding an NPU backend to Gamescope that intercepts frames
-between the game and the display, calls `upscale_full()` via ONNX Runtime
-with the VitisAI Execution Provider, and flips the SR frame to the screen.
+## 7. Versioning the ONNX model
+
+The model file is too large for Git. Use one of:
+
+**Hugging Face (recommended for public release):**
+```bash
+pip install huggingface_hub
+huggingface-cli login
+huggingface-cli upload your-username/npu-scope model.onnx
+```
+
+**GitHub Releases (simplest):**
+Upload `model.onnx` as a binary attachment to each GitHub Release.
+Tags like `v0.1-alpha`, `v1.0` give natural versioning.
+
+**Git LFS (stays in GitHub):**
+```bash
+git lfs install
+git lfs track "*.onnx" "*.pt" "*.ckpt"
+git add .gitattributes
+```
+
+---
+
+## 8. Next: Gamescope integration
+
+The Gamescope backend is the next milestone. The architecture:
+
+```
+Game renders at 540p
+    → Gamescope intercepts frame (rendervulkan.cpp)
+    → [npu-scope backend] GPU→CPU copy
+    → ONNX Runtime + VitisAI EP → XDNA 2 NPU
+    → NPU outputs 1080p
+    → CPU→GPU copy
+    → Gamescope flips 1080p to display
+```
+
+Target latency budget at 60fps (16ms total):
+- GPU→CPU copy: ~1-2ms
+- NPU inference (INT8): ~3-5ms
+- CPU→GPU copy: ~1-2ms
+- Total overhead: ~5-9ms ✓
 
 ---
 
 ## References
 
 - [FSRCNN paper](https://arxiv.org/abs/1608.00367)
+- [suxrobGM/fsrcnn](https://github.com/suxrobGM/fsrcnn) — pretrained checkpoint source
 - [AMD Ryzen AI docs](https://ryzenai.docs.amd.com)
 - [ONNX Runtime docs](https://onnxruntime.ai/docs/)
 - [Gamescope source](https://github.com/ValveSoftware/gamescope)
 - [AMD XDNA driver](https://github.com/amd/xdna-driver)
+- [amd/RyzenAI-SW SR example](https://github.com/amd/RyzenAI-SW)
