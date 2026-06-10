@@ -189,7 +189,8 @@ python train.py \
   --epochs 100 \
   --batch_size 64 \
   --num_workers 6 \
-  --cache_images
+  --cache_images \
+  --no_perceptual
 ```
 
 ### Option B: Quick test run (validate the pipeline works, ~20 min)
