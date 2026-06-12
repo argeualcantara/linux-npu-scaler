@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class PerceptualLoss(nn.Module):
@@ -29,3 +30,17 @@ class PerceptualLoss(nn.Module):
         pred_n   = (pred   - self.mean) / self.std
         target_n = (target - self.mean) / self.std
         return self.criterion(self.vgg(pred_n), self.vgg(target_n))
+
+
+class GradientLoss(nn.Module):
+    """
+    Penalizes mismatch between horizontal and vertical gradients of pred vs target.
+    Directly encourages sharp edges without any auxiliary network.
+    """
+
+    def forward(self, pred, target):
+        pred_dx   = pred[:, :, :, 1:]   - pred[:, :, :, :-1]
+        target_dx = target[:, :, :, 1:] - target[:, :, :, :-1]
+        pred_dy   = pred[:, :, 1:, :]   - pred[:, :, :-1, :]
+        target_dy = target[:, :, 1:, :] - target[:, :, :-1, :]
+        return F.l1_loss(pred_dx, target_dx) + F.l1_loss(pred_dy, target_dy)

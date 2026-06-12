@@ -76,7 +76,7 @@ def upscale_zoo(session, info: dict, image: Image.Image) -> Image.Image:
 
 def upscale_custom(session, info: dict, image: Image.Image) -> Image.Image:
     """
-    Our trained FSRCNN/ESPCN: dynamic input size, 2x scale.
+    Our trained ESPCN: dynamic input size, 2x scale.
     Full image in a single pass — fast and no tiling artifacts.
     """
     input_name = info['input_name']
@@ -193,3 +193,31 @@ def compute_psnr(hr: Image.Image, sr: Image.Image) -> float:
     if mse == 0:
         return float('inf')
     return 20 * np.log10(255.0 / np.sqrt(mse))
+
+
+def difference_image(upscaled: Image.Image, path: str, amplify: float = 5.0):
+    """
+    Saves a visual diff between the SR model output and a bicubic baseline
+    at the same resolution.
+
+    Positive diff (model sharper): green channel
+    Negative diff (model darker/softer): red channel
+    Amplified by `amplify` so subtle differences are visible.
+    """
+    tw, th = upscaled.size
+    bicubic = upscaled.resize((tw // 2, th // 2), Image.BICUBIC) \
+                       .resize((tw, th), Image.BICUBIC)
+
+    sr_arr  = np.array(upscaled.convert('RGB'), dtype=np.float32)
+    bic_arr = np.array(bicubic.convert('RGB'),  dtype=np.float32)
+
+    diff = (sr_arr - bic_arr) * amplify
+
+    r = np.clip(-diff, 0, 255).mean(axis=2)
+    g = np.clip( diff, 0, 255).mean(axis=2)
+    b = np.zeros_like(r)
+
+    vis = np.stack([r, g, b], axis=2).astype(np.uint8)
+    Image.fromarray(vis).save(path)
+    print(f"Difference image saved: {path}")
+    print(f"  Green = model sharper than bicubic | Red = model softer than bicubic | Amplify: {amplify}x")

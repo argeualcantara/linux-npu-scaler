@@ -4,7 +4,7 @@ upscale.py — Image upscaling via ONNX SR model (YCbCr pipeline).
 Supports two model modes:
   - zoo   : ONNX Model Zoo super-resolution-10.onnx (fixed 224→672, 3x scale)
              Output is downsampled to 2x after inference (e.g. 540p → 1080p).
-  - custom: Our trained FSRCNN model (dynamic input, 2x scale)
+  - custom: Our trained ESPCN model (dynamic input, 2x scale)
 
 The mode is detected automatically from the model's input shape.
 
@@ -32,7 +32,8 @@ from sr.inference import (
     load_model, get_model_info,
     upscale_zoo, upscale_custom, upscale_custom_tiled,
     parse_target_res, prepare_input_for_target,
-    compare_side_by_side, compute_psnr,
+    compare_side_by_side, compute_psnr, difference_image,
+    Sharpener,
 )
 
 
@@ -49,7 +50,15 @@ def main():
     parser.add_argument('--tile',       type=int, default=0,
                         help='Tile size in px for custom model (0 = full image)')
     parser.add_argument('--overlap',    type=int, default=64,  help='Tile overlap in px')
+    # ── Sharpen (remove this block + sr/inference/sharpen.py to disable) ──────
+    parser.add_argument('--sharpen',           action='store_true', help='Apply unsharp mask after SR')
+    parser.add_argument('--sharpen_radius',    type=float, default=1.5, help='Unsharp mask radius')
+    parser.add_argument('--sharpen_percent',   type=int,   default=150, help='Unsharp mask strength (%%)')
+    parser.add_argument('--sharpen_threshold', type=int,   default=3,   help='Unsharp mask threshold')
+    # ─────────────────────────────────────────────────────────────────────────
     parser.add_argument('--compare',    action='store_true',   help='Save side-by-side comparison')
+    parser.add_argument('--difference', action='store_true',   help='Save difference image: SR model vs bicubic baseline')
+    parser.add_argument('--amplify',    type=float, default=5.0, help='Amplification factor for difference image')
     parser.add_argument('--hr_ref',     default=None,          help='Native HR reference for PSNR')
     args = parser.parse_args()
 
@@ -110,6 +119,11 @@ def main():
         if crop_box:
             result = result.crop(crop_box)
 
+    # ── Sharpen (remove this block + sr/inference/sharpen.py to disable) ──────
+    if args.sharpen:
+        result = Sharpener(args.sharpen_radius, args.sharpen_percent, args.sharpen_threshold).apply(result)
+    # ─────────────────────────────────────────────────────────────────────────
+
     total_ms = (time.perf_counter() - t_total) * 1000
     print(f"\nOutput resolution: {result.width}x{result.height}")
     print(f"Total time: {total_ms:.1f} ms")
@@ -120,6 +134,10 @@ def main():
     if args.compare:
         compare_path = output_path.with_name(output_path.stem + '_compare.png')
         compare_side_by_side(image, result, str(compare_path))
+
+    if args.difference:
+        diff_path = output_path.with_name(output_path.stem + '_diff.png')
+        difference_image(result, str(diff_path), amplify=args.amplify)
 
     if args.hr_ref:
         hr   = Image.open(args.hr_ref).convert('RGB')

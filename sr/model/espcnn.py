@@ -1,21 +1,17 @@
 import torch.nn as nn
 
 
-class FSRCNN(nn.Module):
+class ESPCN(nn.Module):
     """
     ESPCN — Efficient Sub-Pixel CNN (Shi et al., CVPR 2016).
-    Named FSRCNN for API compatibility but implements ESPCN architecture.
 
-    Architecture (matches yjn870/ESPCN-pytorch x2 pretrained weights exactly):
+    Architecture:
         Conv(1→64, 5x5) + Tanh
         Conv(64→32, 3x3) + Tanh
         Conv(32→scale², 3x3) + PixelShuffle(scale)
 
-    Why ESPCN instead of FSRCNN:
-        - Pretrained x2 weights available (yjn870/ESPCN-pytorch) — exact match
-        - Same PixelShuffle upsampler, same Y-channel pipeline
-        - Smaller and faster than FSRCNN for comparable quality
-        - NPU-friendly: tiny parameter count (~24K at scale=2)
+    NPU-friendly: tiny parameter count (~24K at scale=2).
+    Operates on the Y channel only (YCbCr pipeline).
     """
 
     def __init__(self, scale=2, d=64, s=32, m=4):

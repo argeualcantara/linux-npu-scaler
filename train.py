@@ -1,5 +1,5 @@
 """
-train.py — Trains a lightweight FSRCNN model for 2x super-resolution
+train.py — Trains a lightweight ESPCN model for 2x super-resolution
 and exports it to ONNX.
 
 HR source: 1440p native game captures (no upscaler active)
@@ -37,9 +37,9 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-from sr.model import FSRCNN
+from sr.model import ESPCN
 from sr.data import SRDataset
-from sr.training import PerceptualLoss, compute_ssim, compute_psnr_tensor
+from sr.training import PerceptualLoss, GradientLoss, compute_ssim, compute_psnr_tensor
 from sr.training import load_pretrained, export_onnx
 
 
@@ -59,7 +59,7 @@ def train(args):
         log.info("Mixed precision (AMP) enabled")
 
     # ── Model ──────────────────────────────────────────────────────────────
-    model = FSRCNN(scale=args.scale, d=args.d, s=args.s, m=args.m).to(device)
+    model = ESPCN(scale=args.scale, d=args.d, s=args.s, m=args.m).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     log.info(f"Model parameters: {total_params:,}")
 
@@ -108,6 +108,7 @@ def train(args):
     # ── Loss functions ─────────────────────────────────────────────────────
     l1_loss    = nn.L1Loss()
     perceptual = PerceptualLoss(device) if not args.no_perceptual else None
+    grad_loss  = GradientLoss() if not args.no_gradient else None
 
     # ── Optimizer ──────────────────────────────────────────────────────────
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -151,8 +152,10 @@ def train(args):
             with torch.amp.autocast('cuda', enabled=use_amp):
                 pred = model(lr)
                 loss = l1_loss(pred, hr)
+                if grad_loss is not None:
+                    loss = loss + args.gradient_weight * grad_loss(pred, hr)
                 if perceptual is not None:
-                    loss = loss + 0.1 * perceptual(pred, hr)
+                    loss = loss + args.perceptual_weight * perceptual(pred, hr)
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
@@ -225,7 +228,7 @@ def train(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Train FSRCNN super-resolution model and export to ONNX',
+        description='Train ESPCN super-resolution model and export to ONNX',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -252,7 +255,10 @@ def main():
     parser.add_argument('--m', type=int, default=4,  help='Mapping layers')
 
     # Flags
-    parser.add_argument('--no_perceptual', action='store_true', help='L1 loss only (faster, lower quality)')
+    parser.add_argument('--no_perceptual',      action='store_true', help='Disable perceptual (VGG16) loss')
+    parser.add_argument('--no_gradient',        action='store_true', help='Disable gradient edge loss')
+    parser.add_argument('--perceptual_weight',  type=float, default=0.1, help='Weight for perceptual loss term')
+    parser.add_argument('--gradient_weight',    type=float, default=0.1, help='Weight for gradient edge loss term')
     parser.add_argument('--no_amp',        action='store_true', help='Disable mixed precision training')
     parser.add_argument('--cache_images',  action='store_true', help='Pre-load entire dataset into RAM')
     parser.add_argument('--export_only',   action='store_true',

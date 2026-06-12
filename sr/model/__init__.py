@@ -1,3 +1,3 @@
-from .espcnn import FSRCNN
+from .espcnn import ESPCN
 
-__all__ = ['FSRCNN']
+__all__ = ['ESPCN']
