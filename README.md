@@ -45,7 +45,7 @@ With the XDNA 2 NPU at 50 TOPS, models up to ~2M params are viable at 60fps.
 | Dataset (HR source) | **1440p native** | No upscaler active during capture |
 | Generated LR (training) | **720p** | 2x bicubic downsample, on-the-fly |
 | Inference — training machine | 720p → 1440p | Full quality test |
-| Inference — Ally X (target) | 540p → 1080p | Same 2x ratio |
+| Inference — ROG Xbox Ally X (target) | 540p → 1080p | Same 2x ratio |
 
 Capture at native 1440p with **all upscalers disabled** (FSR, DLSS, XeSS, NIS,
 Gamescope SR). The model learns from real pixel detail — upscaled source frames
