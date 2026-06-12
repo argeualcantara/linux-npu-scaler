@@ -1,3 +1,3 @@
-from .espcnn import ESPCN
+from .espcnn import ESPCN, ESPCNR
 
-__all__ = ['ESPCN']
+__all__ = ['ESPCN', 'ESPCNR']

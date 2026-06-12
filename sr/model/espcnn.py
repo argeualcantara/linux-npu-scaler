@@ -1,6 +1,61 @@
 import torch.nn as nn
 
 
+class _ResidualBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.relu  = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        # Zero-init last conv so each block starts as identity (x + 0)
+        nn.init.zeros_(self.conv2.weight)
+        nn.init.zeros_(self.conv2.bias)
+
+    def forward(self, x):
+        return x + self.conv2(self.relu(self.conv1(x)))
+
+
+class ESPCNR(nn.Module):
+    """
+    ESPCN with Residual blocks — evolved architecture for larger NPU budgets.
+
+    Architecture:
+        Conv(1→d, 5x5) + ReLU
+        N x ResidualBlock(d)  [Conv→ReLU→Conv + skip]
+        Conv(d→scale², 3x3) + PixelShuffle(scale)
+
+    ~600K params at d=64, num_blocks=8.
+    Operates on the Y channel only (YCbCr pipeline).
+    """
+
+    def __init__(self, scale=2, d=64, num_blocks=8):
+        super().__init__()
+        self.scale = scale
+
+        self.entry = nn.Sequential(
+            nn.Conv2d(1, d, kernel_size=5, padding=2),
+            nn.ReLU(inplace=True),
+        )
+        self.residuals = nn.Sequential(*[_ResidualBlock(d) for _ in range(num_blocks)])
+        self.exit = nn.Sequential(
+            nn.Conv2d(d, scale ** 2, kernel_size=3, padding=1),
+            nn.PixelShuffle(scale),
+        )
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        feat = self.entry(x)
+        feat = self.residuals(feat)
+        return self.exit(feat).clamp(0, 1)
+
+
 class ESPCN(nn.Module):
     """
     ESPCN — Efficient Sub-Pixel CNN (Shi et al., CVPR 2016).

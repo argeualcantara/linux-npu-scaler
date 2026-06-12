@@ -1,0 +1,108 @@
+<mxfile host="65bd71144e">
+    <diagram id="3neMUjAfoRVsuEwdHLAK" name="Page-1">
+        <mxGraphModel dx="663" dy="578" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="zone_game" value="Game Process" style="swimlane;startSize=24;fillColor=#0D1B2A;strokeColor=#1E3A5F;fontColor=#4A9EFF;fontSize=11;fontStyle=1;fontFamily=Courier New;rounded=1;arcSize=3;swimlaneLine=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="200" height="230" as="geometry"/>
+                </mxCell>
+                <mxCell id="game_render" value="&lt;b&gt;Game Renderer&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;renders at 540p&lt;br/&gt;RDNA 3.5 iGPU&lt;br/&gt;16 CUs · full utilization&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0F1F3D;strokeColor=#2563EB;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_game" vertex="1">
+                    <mxGeometry x="20" y="50" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="game_fb" value="&lt;b&gt;Framebuffer&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;960×540 · RGB&lt;br/&gt;GPU VRAM&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0F1F3D;strokeColor=#2563EB;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_game" vertex="1">
+                    <mxGeometry x="20" y="155" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_render_fb" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#2563EB;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="zone_game" source="game_render" target="game_fb" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="zone_gscope" value="Gamescope Process" style="swimlane;startSize=24;fillColor=#0A1F0A;strokeColor=#166534;fontColor=#4ADE80;fontSize=11;fontStyle=1;fontFamily=Courier New;rounded=1;arcSize=3;swimlaneLine=1;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="60" width="560" height="560" as="geometry"/>
+                </mxCell>
+                <mxCell id="zone_npu_backend" value="npu-sr Backend Plugin" style="swimlane;startSize=24;fillColor=#160D28;strokeColor=#6D28D9;fontColor=#C084FC;fontSize=11;fontStyle=1;fontFamily=Courier New;rounded=1;arcSize=3;swimlaneLine=1;" parent="zone_gscope" vertex="1">
+                    <mxGeometry x="180" y="80" width="360" height="380" as="geometry"/>
+                </mxCell>
+                <mxCell id="npu_copy_in" value="&lt;b&gt;1. GPU → CPU&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;memcpy / DMA&lt;br/&gt;frame to system RAM&lt;br/&gt;~1-2 ms&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A0F33;strokeColor=#6D28D9;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_npu_backend" vertex="1">
+                    <mxGeometry x="30" y="40" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="npu_ycbcr" value="&lt;b&gt;2. RGB → YCbCr split&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;Y channel → NPU inference&lt;br/&gt;Cb · Cr → bicubic 2× (CPU)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A0F33;strokeColor=#6D28D9;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_npu_backend" vertex="1">
+                    <mxGeometry x="30" y="120" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="npu_infer" value="&lt;b&gt;3. ONNX Runtime + VitisAI EP&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;ESPCNR INT8 · ~595K params&lt;br/&gt;XDNA 2 · 50 TOPS · ~2-4 ms&lt;br/&gt;Y: (1,1,540,960) → (1,1,1080,1920)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2D0F4A;strokeColor=#7C3AED;fontColor=#E879F9;fontSize=10;fontFamily=Courier New;verticalAlign=middle;strokeWidth=2;" parent="zone_npu_backend" vertex="1">
+                    <mxGeometry x="30" y="200" width="300" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="npu_merge" value="&lt;b&gt;4. YCbCr merge → RGB&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;Y_sr + Cb_up + Cr_up&lt;br/&gt;1920×1080 frame · system RAM&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A0F33;strokeColor=#6D28D9;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_npu_backend" vertex="1">
+                    <mxGeometry x="30" y="295" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_ci_yc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#7C3AED;" parent="zone_npu_backend" source="npu_copy_in" target="npu_ycbcr" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_yc_inf" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#7C3AED;" parent="zone_npu_backend" source="npu_ycbcr" target="npu_infer" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_inf_mg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#7C3AED;" parent="zone_npu_backend" source="npu_infer" target="npu_merge" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="gscope_compositor" value="&lt;b&gt;Compositor&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;intercepts frame&lt;br/&gt;KMS / Wayland&lt;br/&gt;detects SR backend&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0A2010;strokeColor=#166534;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_gscope" vertex="1">
+                    <mxGeometry x="20" y="60" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="gscope_out" value="&lt;b&gt;Frame Output&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;1920×1080 · RGB&lt;br/&gt;flips to display&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0A2010;strokeColor=#166534;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_gscope" vertex="1">
+                    <mxGeometry x="20" y="484" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="gscope_copy_out" value="&lt;b&gt;5. CPU → GPU&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;upload 1080p frame&lt;br/&gt;back to VRAM · ~1-2 ms&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0A2010;strokeColor=#166534;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_gscope" vertex="1">
+                    <mxGeometry x="20" y="390" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_comp_npu" value="dispatch to SR backend" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#4ADE80;fontColor=#4ADE80;fontSize=9;fontFamily=Courier New;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="zone_gscope" source="gscope_compositor" target="npu_copy_in" edge="1">
+                    <mxGeometry x="-0.3684" y="-10" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="90" y="180"/>
+                            <mxPoint x="190" y="180"/>
+                            <mxPoint x="190" y="150"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="arr_mg_cpugpu" value="1080p · system RAM" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#C084FC;fontColor=#C084FC;fontSize=9;fontFamily=Courier New;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="zone_gscope" source="npu_merge" target="gscope_copy_out" edge="1">
+                    <mxGeometry x="0.2558" y="-10" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="170" y="405"/>
+                            <mxPoint x="170" y="350"/>
+                            <mxPoint x="90" y="350"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="arr_cpugpu_out" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#4ADE80;" parent="zone_gscope" source="gscope_copy_out" target="gscope_out" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="zone_display" value="Hardware" style="swimlane;startSize=24;fillColor=#1A0D00;strokeColor=#92400E;fontColor=#FBBF24;fontSize=11;fontStyle=1;fontFamily=Courier New;rounded=1;arcSize=3;swimlaneLine=1;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="60" width="200" height="210" as="geometry"/>
+                </mxCell>
+                <mxCell id="disp_panel" value="&lt;b&gt;Display Panel&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;1080p · 120 Hz&lt;br/&gt;KMS flip&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A0D00;strokeColor=#92400E;fontColor=#FBBF24;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_display" vertex="1">
+                    <mxGeometry x="20" y="50" width="160" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="disp_npu_chip" value="&lt;b&gt;XDNA 2 NPU&lt;/b&gt;&lt;br/&gt;&lt;font style=&#39;font-size:9px&#39;&gt;50 TOPS INT8&lt;br/&gt;Z2 Extreme SoC&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1A0D00;strokeColor=#92400E;fontColor=#FBBF24;fontSize=10;fontFamily=Courier New;verticalAlign=middle;" parent="zone_display" vertex="1">
+                    <mxGeometry x="20" y="140" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_fb_comp" value="540p frame" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#4A9EFF;fontColor=#4A9EFF;fontSize=9;fontFamily=Courier New;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="game_fb" target="gscope_compositor" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arr_out_disp" value="1080p · KMS flip" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#FBBF24;fontColor=#FBBF24;fontSize=9;fontFamily=Courier New;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="gscope_out" target="disp_panel" edge="1">
+                    <mxGeometry x="-0.4499" y="-6" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="880" y="574"/>
+                            <mxPoint x="880" y="145"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="legend" value="&lt;b&gt;Latency budget · 60fps = 16ms total&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;GPU → CPU copy:       ~1-2 ms&lt;br/&gt;RGB → YCbCr split:    &amp;lt;0.5 ms&lt;br/&gt;NPU inference INT8:   ~2-4 ms&lt;br/&gt;YCbCr merge → RGB:    &amp;lt;0.5 ms&lt;br/&gt;CPU → GPU upload:     ~1-2 ms&lt;br/&gt;─────────────────────────────&lt;br/&gt;Total SR overhead:    ~4-8 ms ✓&lt;br/&gt;&lt;br/&gt;iGPU: fully available to game" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0D0819;strokeColor=#4C1D95;fontColor=#C084FC;fontSize=10;fontFamily=Courier New;align=left;spacingLeft=10;verticalAlign=top;perimeterSpacing=0;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="300" width="240" height="220" as="geometry"/>
+                </mxCell>
+                <mxCell id="model_note" value="&lt;b&gt;Model: ESPCNR INT8&lt;/b&gt;&lt;br&gt;&lt;br&gt;~595K params&lt;br&gt;~600 KB on NPU&lt;br&gt;input:  960×540&lt;br&gt;output: 1920×1080&lt;br&gt;2× PixelShuffle&lt;br&gt;&lt;br&gt;Loaded once at startup&lt;br&gt;via VitisAI EP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#160D28;strokeColor=#6D28D9;fontColor=#94A3B8;fontSize=10;fontFamily=Courier New;align=left;spacingLeft=10;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="540" width="240" height="190" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

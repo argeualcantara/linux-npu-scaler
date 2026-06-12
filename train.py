@@ -37,13 +37,22 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-from sr.model import ESPCN
+from sr.model import ESPCN, ESPCNR
 from sr.data import SRDataset
 from sr.training import PerceptualLoss, GradientLoss, compute_ssim, compute_psnr_tensor
 from sr.training import load_pretrained, export_onnx
 
 
 def train(args):
+    # ── Guard: warn before overwriting an existing checkpoint ─────────────
+    checkpoint_path = Path(args.output).with_suffix('.pt')
+    if checkpoint_path.exists() and not args.resume and not args.export_only:
+        answer = input(f"\nCheckpoint {checkpoint_path} already exists and --resume was not passed.\n"
+                       f"This will overwrite it. Continue? [y/N] ").strip().lower()
+        if answer != 'y':
+            log.info("Aborted.")
+            return
+
     # ── Device ────────────────────────────────────────────────────────────
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -59,7 +68,10 @@ def train(args):
         log.info("Mixed precision (AMP) enabled")
 
     # ── Model ──────────────────────────────────────────────────────────────
-    model = ESPCN(scale=args.scale, d=args.d, s=args.s, m=args.m).to(device)
+    if args.model_type == 'espcnr':
+        model = ESPCNR(scale=args.scale, d=args.d, num_blocks=args.num_blocks).to(device)
+    else:
+        model = ESPCN(scale=args.scale, d=args.d, s=args.s, m=args.m).to(device)
     total_params = sum(p.numel() for p in model.parameters())
     log.info(f"Model parameters: {total_params:,}")
 
@@ -94,6 +106,7 @@ def train(args):
         patch_size=args.patch_size,
         scale=args.scale,
         cache=args.cache_images,
+        cache_limit_gb=args.cache_limit,
     )
     loader = DataLoader(
         dataset,
@@ -137,7 +150,13 @@ def train(args):
 
     # ── Training loop ──────────────────────────────────────────────────────
     best_psnr = 0.0
-    checkpoint_path = Path(args.output).with_suffix('.pt')
+    if args.resume and checkpoint_path.exists():
+        try:
+            _ckpt = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            best_psnr = _ckpt.get('psnr', 0.0)
+            log.info(f"Best PSNR loaded from checkpoint: {best_psnr:.2f} dB")
+        except Exception:
+            pass
 
     for epoch in range(start_epoch, start_epoch + args.epochs):
         model.train()
@@ -250,9 +269,12 @@ def main():
     parser.add_argument('--val_freq',    type=int,   default=5,   help='Run validation every N epochs')
 
     # Model architecture
-    parser.add_argument('--d', type=int, default=56, help='Feature map depth')
-    parser.add_argument('--s', type=int, default=12, help='Shrinking channels')
-    parser.add_argument('--m', type=int, default=4,  help='Mapping layers')
+    parser.add_argument('--model_type',  default='espcn', choices=['espcn', 'espcnr'],
+                        help='Model architecture: espcn (original) or espcnr (with residual blocks)')
+    parser.add_argument('--d',          type=int, default=56, help='Feature channels (both models)')
+    parser.add_argument('--s',          type=int, default=12, help='Shrinking channels (espcn only)')
+    parser.add_argument('--m',          type=int, default=4,  help='Mapping layers (espcn only)')
+    parser.add_argument('--num_blocks', type=int, default=8,  help='Residual blocks (espcnr only)')
 
     # Flags
     parser.add_argument('--no_perceptual',      action='store_true', help='Disable perceptual (VGG16) loss')
@@ -261,6 +283,8 @@ def main():
     parser.add_argument('--gradient_weight',    type=float, default=0.1, help='Weight for gradient edge loss term')
     parser.add_argument('--no_amp',        action='store_true', help='Disable mixed precision training')
     parser.add_argument('--cache_images',  action='store_true', help='Pre-load entire dataset into RAM')
+    parser.add_argument('--cache_limit',   type=float, default=0.0,
+                        help='Cache up to this many GB of images (0 = no limit, requires --cache_images)')
     parser.add_argument('--export_only',   action='store_true',
                         help='Load pretrained weights and export to ONNX, skip training')
 

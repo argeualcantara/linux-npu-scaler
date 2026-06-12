@@ -28,13 +28,13 @@ class SRDataset(Dataset):
 
     EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp'}
 
-    def __init__(self, data_dir, patch_size=64, scale=2, augment=True, cache=False):
+    def __init__(self, data_dir, patch_size=64, scale=2, augment=True, cache=False, cache_limit_gb=0.0):
         self.data_dir = Path(data_dir)
         self.patch_size = patch_size
         self.scale = scale
         self.augment = augment
         self.hr_size = patch_size * scale
-        self.cache = cache
+        self.cache = cache or cache_limit_gb > 0
         self._image_cache = {}
 
         self.image_paths = [
@@ -50,17 +50,26 @@ class SRDataset(Dataset):
 
         log.info(f"Dataset: {len(self.image_paths)} images found in {data_dir}")
         log.info(f"HR patch size: {self.hr_size}px | LR patch size: {self.patch_size}px | Scale: {self.scale}x")
-        if cache:
-            log.info("Image caching enabled — pre-loading dataset into RAM...")
-            self._preload_cache()
+        if self.cache:
+            limit_str = f"{cache_limit_gb:.1f} GB limit" if cache_limit_gb > 0 else "no limit"
+            log.info(f"Image caching enabled ({limit_str}) — pre-loading dataset into RAM...")
+            self._preload_cache(cache_limit_gb)
 
-    def _preload_cache(self):
+    def _preload_cache(self, limit_gb=0.0):
+        limit_bytes = limit_gb * 1024 ** 3 if limit_gb > 0 else float('inf')
+        used_bytes = 0
         for path in self.image_paths:
             try:
-                self._image_cache[str(path)] = Image.open(path).convert('RGB')
+                img = Image.open(path).convert('RGB')
+                img_bytes = img.width * img.height * 3
+                if used_bytes + img_bytes > limit_bytes:
+                    break
+                self._image_cache[str(path)] = img
+                used_bytes += img_bytes
             except Exception:
                 pass
-        log.info(f"Cached {len(self._image_cache)} images in RAM.")
+        log.info(f"Cached {len(self._image_cache)}/{len(self.image_paths)} images "
+                 f"({used_bytes / 1024**3:.2f} GB in RAM).")
 
     def _load_image(self, path):
         key = str(path)
