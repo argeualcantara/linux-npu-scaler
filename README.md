@@ -67,8 +67,8 @@ undermine training quality.
 ### 1a. Clone the repo and create a virtual environment
 
 ```bash
-git clone https://github.com/your-username/npu-scope
-cd npu-scope
+git clone https://github.com/argeualcantara/linux-npu-scaler.git
+cd linux-npu-scaler
 
 python -m venv venv
 source venv/bin/activate
